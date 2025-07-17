@@ -38,23 +38,63 @@ Flags:
 
 ### `deposit-data`
 
-To quickly generate a list of deposit datas for a range of accounts.
+To quickly generate a list of deposit datas for a range of accounts. Supports different withdrawal credential types (0x00, 0x01, 0x02).
 
 ```
-Create deposit data for the given range of validators. 1 json-encoded deposit data per line.
+Create deposit data for the given range of validators with configurable withdrawal credentials. 1 json-encoded deposit data per line.
 
 Usage:
   eth2-val-tools deposit-data [flags]
 
 Flags:
-      --amount uint                   Amount to deposit, in Gwei (default 32000000000)
-      --as-json-list                  If the json datas should be wrapped with brackets and separated with commas, like a json list.
-      --fork-version string           Fork version, e.g. 0x11223344
-  -h, --help                          help for deposit-data
-      --source-max uint               Maximum validator index in HD path range (excl.)
-      --source-min uint               Minimum validator index in HD path range (incl.)
-      --validators-mnemonic string    Mnemonic to use for validators.
-      --withdrawals-mnemonic string   Mnemonic to use for BLS withdrawal creds. Withdrawal accounts are assumed to have standard paths relative to validators.
+      --amount uint                          Amount to deposit, in Gwei (default 32000000000)
+      --as-json-list                         If the json datas should be wrapped with brackets and separated with commas, like a json list.
+      --fork-version string                  Fork version, e.g. 0x11223344
+  -h, --help                                 help for deposit-data
+      --source-max uint                      Maximum validator index in HD path range (excl.)
+      --source-min uint                      Minimum validator index in HD path range (incl.)
+      --validators-mnemonic string           Mnemonic to use for validators.
+      --withdrawal-address string            Withdrawal address for 0x01 and 0x02 withdrawal credentials. Hex encoded with prefix.
+      --withdrawal-credentials-type string   Type of withdrawal credentials: 0x00 (BLS), 0x01 (execution address), or 0x02 (compounding) (default "0x00")
+      --withdrawals-mnemonic string          Mnemonic to use for BLS withdrawal creds. Only required for 0x00 withdrawal credentials.
+```
+
+#### Withdrawal Credential Types
+
+- **0x00 (BLS)**: Traditional BLS withdrawal credentials (default behavior). Requires `--withdrawals-mnemonic`.
+- **0x01 (Execution Address)**: Direct execution address withdrawal credentials. Requires `--withdrawal-address`.
+- **0x02 (Compounding)**: Compounding withdrawal credentials for future EIP-7002 support. Requires `--withdrawal-address`.
+
+#### Examples
+
+Traditional BLS withdrawal credentials:
+```shell script
+eth2-val-tools deposit-data \
+  --validators-mnemonic="abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about" \
+  --withdrawals-mnemonic="abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about" \
+  --source-min=0 --source-max=5 \
+  --fork-version=0x00000000 \
+  --withdrawal-credentials-type=0x00
+```
+
+Execution address withdrawal credentials:
+```shell script
+eth2-val-tools deposit-data \
+  --validators-mnemonic="abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about" \
+  --withdrawal-address=0x742d35Cc6634C0532925a3b8D73e684B8F8832B2 \
+  --source-min=0 --source-max=5 \
+  --fork-version=0x00000000 \
+  --withdrawal-credentials-type=0x01
+```
+
+Compounding withdrawal credentials:
+```shell script
+eth2-val-tools deposit-data \
+  --validators-mnemonic="abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about" \
+  --withdrawal-address=0x742d35Cc6634C0532925a3b8D73e684B8F8832B2 \
+  --source-min=0 --source-max=5 \
+  --fork-version=0x00000000 \
+  --withdrawal-credentials-type=0x02
 ```
 
 ### `bls-address-change`

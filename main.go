@@ -575,12 +575,14 @@ func createDepositDatasCmd() *cobra.Command {
 
 	var validatorsMnemonic string
 	var withdrawalsMnemonic string
+	var withdrawalAddr string
+	var withdrawalCredType string
 
 	var asJsonList bool
 
 	cmd := &cobra.Command{
 		Use:   "deposit-data",
-		Short: "Create deposit data for the given range of validators. 1 json-encoded deposit data per line.",
+		Short: "Create deposit data for the given range of validators with configurable withdrawal credentials. 1 json-encoded deposit data per line.",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			checkErr := makeCheckErr(cmd)
@@ -589,8 +591,15 @@ func createDepositDatasCmd() *cobra.Command {
 
 			valSeed, err := mnemonicToSeed(validatorsMnemonic)
 			checkErr(err, "bad validator mnemonic")
-			withdrSeed, err := mnemonicToSeed(withdrawalsMnemonic)
-			checkErr(err, "bad withdrawal mnemonic")
+			
+			var withdrSeed []byte
+			if withdrawalCredType == "0x00" {
+				if withdrawalsMnemonic == "" {
+					checkErr(errors.New("withdrawals-mnemonic is required for 0x00 withdrawal credentials"), "")
+				}
+				withdrSeed, err = mnemonicToSeed(withdrawalsMnemonic)
+				checkErr(err, "bad withdrawal mnemonic")
+			}
 
 			if asJsonList {
 				cmd.Println("[")
@@ -599,25 +608,50 @@ func createDepositDatasCmd() *cobra.Command {
 				valAccPath := fmt.Sprintf("m/12381/3600/%d/0/0", i)
 				val, err := blshd.SecretKeyFromHD(valSeed, valAccPath)
 				checkErr(err, fmt.Sprintf("failed to create validator private key for path %q", valAccPath))
-				withdrAccPath := fmt.Sprintf("m/12381/3600/%d/0", i)
-				withdr, err := blshd.SecretKeyFromHD(withdrSeed, withdrAccPath)
-				checkErr(err, fmt.Sprintf("failed to create withdrawal private key for path %q", withdrAccPath))
 
 				var valSK blsu.SecretKey
 				checkErr(valSK.Deserialize(val), "failed to decode derived validator signing secret key")
 				valPub, err := blsu.SkToPk(&valSK)
 				checkErr(err, "failed to compute pubkey of validator signging key")
 
-				var withdrSK blsu.SecretKey
-				checkErr(withdrSK.Deserialize(withdr), "failed to decode derived validator withdrawal secret key")
-				withdrPub, err := blsu.SkToPk(&withdrSK)
-				checkErr(err, "failed to compute pubkey of validator withdrawal key")
-
 				pub := common.BLSPubkey(valPub.Serialize())
 
-				withdrPubEncoded := common.BLSPubkey(withdrPub.Serialize())
-				withdrCreds := hashing.Hash(withdrPubEncoded[:])
-				withdrCreds[0] = common.BLS_WITHDRAWAL_PREFIX
+				// Generate withdrawal credentials based on type
+				var withdrCreds [32]byte
+				switch withdrawalCredType {
+				case "0x00":
+					// BLS withdrawal credentials (default)
+					withdrAccPath := fmt.Sprintf("m/12381/3600/%d/0", i)
+					withdr, err := blshd.SecretKeyFromHD(withdrSeed, withdrAccPath)
+					checkErr(err, fmt.Sprintf("failed to create withdrawal private key for path %q", withdrAccPath))
+					var withdrSK blsu.SecretKey
+					checkErr(withdrSK.Deserialize(withdr), "failed to decode derived validator withdrawal secret key")
+					withdrPub, err := blsu.SkToPk(&withdrSK)
+					checkErr(err, "failed to compute pubkey of validator withdrawal key")
+					withdrPubEncoded := common.BLSPubkey(withdrPub.Serialize())
+					withdrCreds = hashing.Hash(withdrPubEncoded[:])
+					withdrCreds[0] = common.BLS_WITHDRAWAL_PREFIX
+				case "0x01":
+					// Execution address withdrawal credentials
+					if withdrawalAddr == "" {
+						checkErr(errors.New("withdrawal-address is required when using 0x01 withdrawal credentials"), "")
+					}
+					var execAddr common.Eth1Address
+					checkErr(execAddr.UnmarshalText([]byte(withdrawalAddr)), "cannot decode withdrawal address")
+					withdrCreds[0] = 0x01
+					copy(withdrCreds[12:], execAddr[:])
+				case "0x02":
+					// Compounding withdrawal credentials (for future use)
+					if withdrawalAddr == "" {
+						checkErr(errors.New("withdrawal-address is required when using 0x02 withdrawal credentials"), "")
+					}
+					var execAddr common.Eth1Address
+					checkErr(execAddr.UnmarshalText([]byte(withdrawalAddr)), "cannot decode withdrawal address")
+					withdrCreds[0] = 0x02
+					copy(withdrCreds[12:], execAddr[:])
+				default:
+					checkErr(fmt.Errorf("invalid withdrawal credential type: %s (must be 0x00, 0x01, or 0x02)", withdrawalCredType), "")
+				}
 
 				data := common.DepositData{
 					Pubkey:                pub,
@@ -656,7 +690,9 @@ func createDepositDatasCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&validatorsMnemonic, "validators-mnemonic", "", "Mnemonic to use for validators.")
-	cmd.Flags().StringVar(&withdrawalsMnemonic, "withdrawals-mnemonic", "", "Mnemonic to use for BLS withdrawal creds. Withdrawal accounts are assumed to have standard paths relative to validators.")
+	cmd.Flags().StringVar(&withdrawalsMnemonic, "withdrawals-mnemonic", "", "Mnemonic to use for BLS withdrawal creds. Only required for 0x00 withdrawal credentials.")
+	cmd.Flags().StringVar(&withdrawalAddr, "withdrawal-address", "", "Withdrawal address for 0x01 and 0x02 withdrawal credentials. Hex encoded with prefix.")
+	cmd.Flags().StringVar(&withdrawalCredType, "withdrawal-credentials-type", "0x00", "Type of withdrawal credentials: 0x00 (BLS), 0x01 (execution address), or 0x02 (compounding)")
 	cmd.Flags().Uint64Var(&accountMin, "source-min", 0, "Minimum validator index in HD path range (incl.)")
 	cmd.Flags().Uint64Var(&accountMax, "source-max", 0, "Maximum validator index in HD path range (excl.)")
 	cmd.Flags().Uint64Var(&amountGwei, "amount", uint64(configs.Mainnet.MAX_EFFECTIVE_BALANCE), "Amount to deposit, in Gwei")
